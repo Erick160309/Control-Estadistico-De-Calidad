@@ -1,0 +1,187 @@
+<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><title>Simulador CEP — Cartas de Control X̄-R / X̄-S</title>
+<script src="https://cdn.tailwindcss.com/3.4.17"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/htm@3.1.1/dist/htm.umd.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>:root{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);color-scheme:light}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{background:#f1f5f9;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:#0f172a}</style></head>
+<body><div id="root"></div>
+<script>
+const {useState,useMemo,useEffect,useRef}=React;const h=htm.bind(React.createElement);
+// ---- Constantes y utilidades estadísticas ----
+const D2=[0,0,1.128,1.693,2.059,2.326,2.534,2.704,2.847,2.970,3.078,3.173,3.258,3.336,3.407,3.472,3.532,3.588,3.640,3.689,3.735,3.778,3.819,3.858,3.895,3.931];
+const D3C=[0,0,.853,.888,.880,.864,.848,.833,.820,.808,.797,.787,.778,.770,.763,.756,.750,.744,.739,.734,.729,.724,.720,.716,.712,.708];
+function lg(x){const c=[76.18009172947146,-86.50532032941677,24.01409824083091,-1.231739572450155,.1208650973866179e-2,-.5395239384953e-5];let y=x,t=x+5.5;t-=(x+.5)*Math.log(t);let s=1.000000000190015;for(let j=0;j<6;j++)s+=c[j]/++y;return -t+Math.log(2.5066282746310005*s/x)}
+const c4f=n=>Math.sqrt(2/(n-1))*Math.exp(lg(n/2)-lg((n-1)/2));
+const erf=x=>{const s=Math.sign(x);x=Math.abs(x);const t=1/(1+.3275911*x);return s*(1-((((1.061405429*t-1.453152027)*t+1.421413741)*t-.284496736)*t+.254829592)*t*Math.exp(-x*x))};
+const Phi=z=>.5*(1+erf(z/Math.SQRT2));
+const mean=a=>a.reduce((s,v)=>s+v,0)/a.length;
+const sdv=a=>{const u=mean(a);return Math.sqrt(a.reduce((s,v)=>s+(v-u)**2,0)/(a.length-1))};
+
+function pats(v,cl,u,l){const s=(u-cl)/3,out=new Set(),pat=new Set(),msgs=[],found={};
+ v.forEach((x,i)=>{if(x>u||x<l)out.add(i)});
+ const sg=v.map(x=>Math.sign(x-cl));
+ const mark=(k,i,len)=>{(found[k]=found[k]||[]).push(i+1);for(let j=i;j<i+len;j++)pat.add(j)};
+ for(let i=0;i+8<=v.length;i++)if(sg[i]!==0&&sg.slice(i,i+8).every(q=>q===sg[i]))mark('Racha de 8 o más puntos del mismo lado de la línea central (cambio de nivel)',i,8);
+ for(let i=0;i+6<=v.length;i++){const d=v.slice(i+1,i+6).map((x,j)=>x-v[i+j]);if(d.every(x=>x>0)||d.every(x=>x<0))mark('Tendencia de 6 puntos consecutivos ascendentes o descendentes',i,6)}
+ for(let i=0;i+3<=v.length;i++){const w=v.slice(i,i+3);if(w.filter(x=>x-cl>2*s).length>=2||w.filter(x=>cl-x>2*s).length>=2)mark('Acercamiento a límites: 2 de 3 puntos más allá de 2σ',i,3)}
+ for(let i=0;i+5<=v.length;i++){const w=v.slice(i,i+5);if(w.filter(x=>x-cl>s).length>=4||w.filter(x=>cl-x>s).length>=4)mark('4 de 5 puntos más allá de 1σ del mismo lado',i,5)}
+ for(let i=0;i+15<=v.length;i++)if(v.slice(i,i+15).every(x=>Math.abs(x-cl)<s))mark('15 puntos pegados a la línea central (estratificación o límites sobrestimados)',i,15);
+ for(let i=0;i+14<=v.length;i++){const d=v.slice(i+1,i+14).map((x,j)=>x-v[i+j]);if(d.every((x,j)=>j===0||x*d[j-1]<0))mark('Patrón cíclico/en dientes de sierra (14 puntos alternando)',i,14)}
+ Object.entries(found).forEach(([k,a])=>msgs.push(k+' — desde el subgrupo '+a[0]));
+ return{out,pat,msgs}}
+
+function analyze(rows,type,EI,ES,N){
+ const m=rows.length,n=rows[0].length,isR=type==='R',d2=D2[n],d3=D3C[n],c4=c4f(n);
+ const xb=rows.map(mean),R=rows.map(r=>Math.max(...r)-Math.min(...r)),S=rows.map(sdv);
+ const XX=mean(xb),disp=isR?R:S,Db=mean(disp),sig=isR?Db/d2:Db/c4;
+ const A=3/((isR?d2:c4)*Math.sqrt(n)),q=isR?3*d3/d2:3*Math.sqrt(1-c4*c4)/c4,Lk=Math.max(0,1-q),Uk=1+q;
+ const xl={cl:XX,u:XX+A*Db,l:XX-A*Db},dl={cl:Db,u:Uk*Db,l:Lk*Db};
+ const Cp=(ES-EI)/(6*sig),Cpi=(XX-EI)/(3*sig),Cps=(ES-XX)/(3*sig),Cpk=Math.min(Cpi,Cps),K=(XX-N)/((ES-EI)/2)*100;
+ const ppmL=Phi((EI-XX)/sig)*1e6,ppmU=(1-Phi((ES-XX)/sig))*1e6;
+ const all=rows.flat(),dmin=Math.min(...all),dmax=Math.max(...all),mu=mean(all),sd=Math.sqrt(mean(all.map(x=>(x-mu)**2)));
+ const g1=mean(all.map(x=>((x-mu)/sd)**3)),g2=mean(all.map(x=>((x-mu)/sd)**4))-3,bc=(g1*g1+1)/(g2+3);
+ return{m,n,isR,xb,R,S,disp,XX,Db,sig,A,Lk,Uk,d2,c4,xl,dl,Cp,Cpi,Cps,Cpk,K,ppmL,ppmU,all,dmin,dmax,g1,g2,bc,EI,ES,N,
+  px:pats(xb,xl.cl,xl.u,xl.l),pd:pats(disp,dl.cl,dl.u,dl.l)}}
+
+const SIXM='Revise las 6M: Mano de obra (operador/turno), Maquinaria (ajuste, desgaste), Materiales (lote, proveedor), Métodos (procedimiento, parámetros), Medición (instrumento, calibración) y Medio ambiente (temperatura, humedad).';
+function report(a){const o=[],f=(v,d=2)=>v.toFixed(d);
+ const un=a.px.out.size+a.pd.out.size>0,pt=a.px.msgs.length+a.pd.msgs.length>0,dn=a.isR?'R':'S';
+ if(!un&&!pt)o.push(['ok','Estabilidad del proceso','El proceso está en control estadístico: no hay puntos fuera de límites ni patrones no aleatorios. Solo actúan causas comunes, por lo que los índices de capacidad son representativos.']);
+ else{const t=[];
+  if(a.px.out.size)t.push('La carta X̄ tiene '+a.px.out.size+' punto(s) fuera de límites (subgrupos '+[...a.px.out].map(i=>i+1).join(', ')+'): cambio en la media por causas especiales.');
+  if(a.pd.out.size)t.push('La carta '+dn+' tiene '+a.pd.out.size+' punto(s) fuera de límites (subgrupos '+[...a.pd.out].map(i=>i+1).join(', ')+'): aumento de variabilidad por causas especiales.');
+  a.px.msgs.forEach(x=>t.push('Carta X̄: '+x+'.'));a.pd.msgs.forEach(x=>t.push('Carta '+dn+': '+x+'.'));
+  o.push(['bad','Estabilidad del proceso','El proceso NO es estable (hay causas especiales). '+t.join(' ')+' '+SIXM+' Para estimar la capacidad correctamente, identifique y elimine las causas especiales y vuelva a calcular; mientras tanto Cp y Cpk son solo referenciales.'])}
+ const c=a.Cp,cl=c>=2?['ok','Clase Mundial (Cp ≥ 2)','Se tiene un proceso con calidad Seis Sigma.']:c>1.33?['ok','Clase 1 — Adecuado (Cp > 1.33)','El proceso es adecuado; basta un control rutinario.']:c>=1?['warn','Clase 2 — Parcialmente adecuado (1 ≤ Cp ≤ 1.33)','Requiere control estricto para evitar que se salga de especificaciones.']:c>.67?['bad','Clase 3 — No adecuado (0.67 < Cp < 1)','Se necesita un análisis del proceso y modificaciones serias para alcanzar calidad satisfactoria.']:['bad','Clase 4 — Crítico (Cp < 0.67)','El proceso no es adecuado para el trabajo; requiere modificaciones muy serias.'];
+ o.push([cl[0],'Capacidad potencial: '+cl[1],'Cp = '+f(c)+'. '+cl[2]+' El proceso tiene una dispersión de 6σ̂ = '+f(6*a.sig,3)+' frente a una tolerancia de '+f(a.ES-a.EI,3)+'.']);
+ const dif=a.Cp-a.Cpk,ak=Math.abs(a.K);let tx='K = '+f(a.K,1)+'% ('+(a.K>0?'media desplazada hacia ES':'media desplazada hacia EI')+'); Cpk = '+f(a.Cpk)+'. ';let lv='ok';
+ if(ak>20){lv='warn';tx+='|K| > 20%: el proceso está descentrado y se debe corregir el centrado. '}else tx+='|K| ≤ 20%: centrado aceptable. ';
+ if(a.Cpk<0)tx+='Cpk negativo: la media está fuera de especificaciones. ';
+ if(a.Cpk<1.25){lv=a.Cpk<1?'bad':'warn';tx+='Cpk < 1.25: no cumple el criterio mínimo recomendado para procesos existentes. '}
+ if(a.Cp>=1&&a.Cpk<1)tx+='Diagnóstico: Cp ≥ 1 pero Cpk < 1, el problema es de CENTRADO; la variabilidad cabe en la tolerancia si se centra la media.';
+ else if(a.Cp<1&&dif<.1*a.Cp)tx+='Diagnóstico: Cp y Cpk son similares y bajos, el problema es de EXCESO DE VARIABILIDAD; reducir σ es prioritario.';
+ else if(a.Cp<1)tx+='Diagnóstico: hay exceso de variabilidad y además descentrado; se deben atacar ambos.';
+ else if(dif>.2)tx+='Diagnóstico: la brecha Cp − Cpk = '+f(dif)+' revela pérdida de capacidad por descentrado.';
+ else tx+='Diagnóstico: Cp ≈ Cpk, el proceso está razonablemente centrado.';
+ o.push([lv,'Centrado ('+'K y Cpk)',tx]);
+ const pp=a.ppmL+a.ppmU;o.push([pp<64?'ok':pp<2700?'warn':'bad','Producto fuera de especificaciones (supuesto de normalidad)','Se estiman ≈ '+Math.round(pp).toLocaleString('es-MX')+' PPM ('+Math.round(a.ppmL).toLocaleString('es-MX')+' por debajo de EI y '+Math.round(a.ppmU).toLocaleString('es-MX')+' por encima de ES). Límites reales: '+f(a.XX-3*a.sig,3)+' a '+f(a.XX+3*a.sig,3)+'.']);
+ const hs=[];if(Math.abs(a.g1)>.5)hs.push('sesgo '+(a.g1>0?'positivo':'negativo')+' (g₁ = '+f(a.g1)+'): la normalidad es dudosa, interprete PPM con cautela');
+ if(a.bc>.6&&a.all.length>=30)hs.push('posible bimodalidad (coeficiente = '+f(a.bc)+'): puede haber mezcla de dos fuentes (máquinas, turnos o lotes)');
+ if(a.cliff)hs.push(a.cliff);
+ if(hs.length)o.push(['warn','Forma del histograma',hs.join('; ')+'.']);else o.push(['ok','Forma del histograma','Distribución aproximadamente simétrica y unimodal, sin acantilados evidentes.']);
+ return o}
+
+// ---- Generador de escenarios ----
+const SCEN=[{n:'Inyección de plástico — peso de la pieza (g)',mu:25,sg:.18,EI:24.4,ES:25.6,N:25},{n:'Envasado — contenido neto (ml)',mu:500,sg:2.2,EI:490,ES:510,N:500},{n:'Maquinado — diámetro de flecha (mm)',mu:12,sg:.012,EI:11.95,ES:12.05,N:12}];
+const FAULTS={none:'Sin falla (proceso estable)',shift:'Desplazamiento de la media',var:'Aumento de variabilidad',trend:'Tendencia (desgaste de herramienta)',spike:'Causas especiales (subgrupos atípicos)'};
+const rn=()=>{let u=0;while(!u)u=Math.random();return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*Math.random())};
+function gen(si,n,m,fault){const s=SCEN[si],sg=s.sg*(.75+Math.random()*.8),mu=s.mu+(Math.random()-.5)*1.2*s.sg,k=Math.floor(m*.55),dec=Math.max(1,Math.ceil(-Math.log10(s.sg))+1);
+ const sp=[0,0,0].map(()=>3+Math.floor(Math.random()*(m-4)));
+ const rows=Array.from({length:m},(_,i)=>{let mm=mu,ss=sg;
+  if(fault==='shift'&&i>=k)mm+=2*sg;if(fault==='var'&&i>=k)ss*=2.5;if(fault==='trend')mm+=Math.max(0,i-5)*.2*sg;
+  if(fault==='spike'&&sp.includes(i))mm+=(Math.random()<.5?-1:1)*4*sg;
+  return Array.from({length:n},()=>+(mm+ss*rn()).toFixed(dec))});
+ return{si,n,m,fault,rows,EI:s.EI,ES:s.ES,N:s.N}}
+
+// ---- Componentes ----
+function Ctl({title,vals,c,pt}){const ref=useRef();
+ useEffect(()=>{const col=(i,a,b)=>pt.out.has(i)?'#dc2626':pt.pat.has(i)?'#f59e0b':'#1d4ed8';
+  const ch=new Chart(ref.current,{type:'line',data:{labels:vals.map((_,i)=>i+1),datasets:[
+  {label:title,data:vals,borderColor:'#1d4ed8',borderWidth:1.5,tension:0,pointBackgroundColor:vals.map(col),pointBorderColor:vals.map(col),pointRadius:vals.map((_,i)=>pt.out.has(i)?6:3.5)},
+  {label:'LCS',data:vals.map(()=>c.u),borderColor:'#dc2626',borderDash:[6,4],pointRadius:0,borderWidth:1.5},
+  {label:'LC',data:vals.map(()=>c.cl),borderColor:'#16a34a',pointRadius:0,borderWidth:1.5},
+  {label:'LCI',data:vals.map(()=>c.l),borderColor:'#dc2626',borderDash:[6,4],pointRadius:0,borderWidth:1.5}]},
+  options:{responsive:true,maintainAspectRatio:false,animation:false,plugins:{legend:{display:false},title:{display:true,text:title+'  (LCS='+c.u.toFixed(3)+'  LC='+c.cl.toFixed(3)+'  LCI='+c.l.toFixed(3)+')'}},scales:{x:{title:{display:true,text:'Subgrupo'}}}}});
+  return()=>ch.destroy()},[JSON.stringify(vals),c.u,c.l,c.cl]);
+ return h`<div class="h-64"><canvas ref=${ref}></canvas></div>`}
+
+const vl={id:'vl',afterDatasetsDraw(c,_,o){const{ctx,chartArea:a,scales:{x}}=c;(o.lines||[]).forEach(l=>{const px=x.getPixelForValue(l.v);if(px<a.left||px>a.right)return;ctx.save();ctx.strokeStyle=l.c;ctx.fillStyle=l.c;ctx.lineWidth=2;ctx.setLineDash(l.d||[]);ctx.beginPath();ctx.moveTo(px,a.top);ctx.lineTo(px,a.bottom);ctx.stroke();ctx.setLineDash([]);ctx.font='bold 12px sans-serif';ctx.fillText(l.t,px+3,a.top+13);ctx.restore()})}};
+function Hist({a}){const ref=useRef();
+ useEffect(()=>{const{all,dmin,dmax,EI,ES,N,XX,sig}=a,k=Math.max(6,Math.min(20,Math.round(1+3.322*Math.log10(all.length)))),bw=(dmax-dmin)/k||1,cnt=Array(k).fill(0);
+  all.forEach(x=>cnt[Math.min(k-1,Math.floor((x-dmin)/bw))]++);
+  const lo0=Math.min(EI,dmin),hi0=Math.max(ES,dmax),pad=.05*(hi0-lo0),lo=lo0-pad,hi=hi0+pad;
+  const curve=Array.from({length:121},(_,i)=>{const x=lo+(hi-lo)*i/120;return{x,y:all.length*bw*Math.exp(-.5*((x-XX)/sig)**2)/(sig*Math.sqrt(2*Math.PI))}});
+  const ch=new Chart(ref.current,{type:'bar',plugins:[vl],data:{datasets:[
+   {type:'bar',label:'Frecuencia',data:cnt.map((c,i)=>({x:dmin+bw*(i+.5),y:c})),backgroundColor:'rgba(59,130,246,.55)',borderColor:'#1d4ed8',borderWidth:1,barPercentage:1,categoryPercentage:1},
+   {type:'line',label:'Normal ajustada',data:curve,borderColor:'#7c3aed',borderWidth:2,pointRadius:0,tension:.3}]},
+   options:{responsive:true,maintainAspectRatio:false,animation:false,parsing:false,scales:{x:{type:'linear',min:lo,max:hi,title:{display:true,text:'Valor medido'}},y:{beginAtZero:true,title:{display:true,text:'Frecuencia'}}},
+   plugins:{legend:{position:'bottom'},vl:{lines:[{v:EI,c:'#dc2626',t:'EI'},{v:ES,c:'#dc2626',t:'ES'},{v:N,c:'#16a34a',t:'N',d:[5,4]}]}}}});
+  return()=>ch.destroy()},[a]);
+ return h`<div class="h-72"><canvas ref=${ref}></canvas></div>`}
+
+const Kpi=({l,v,s,t})=>h`<div class="rounded-lg border bg-white p-3 ${t==='bad'?'border-red-300':t==='warn'?'border-amber-300':t==='ok'?'border-green-300':'border-slate-200'}"><div class="text-xs text-slate-500">${l}</div><div class="text-xl font-semibold tabular-nums">${v}</div>${s&&h`<div class="text-xs text-slate-500">${s}</div>`}</div>`;
+const tone={ok:'bg-green-50 border-green-300 text-green-900',warn:'bg-amber-50 border-amber-300 text-amber-900',bad:'bg-red-50 border-red-300 text-red-900'};
+const Inp=({l,...p})=>h`<label class="block text-sm"><span class="text-slate-600">${l}</span><input class="mt-1 w-full rounded border border-slate-300 px-2 py-1 bg-white" ...${p}/></label>`;
+const Sel=({l,children,...p})=>h`<label class="block text-sm"><span class="text-slate-600">${l}</span><select class="mt-1 w-full rounded border border-slate-300 px-2 py-1 bg-white" ...${p}>${children}</select></label>`;
+const Btn=({c='bg-blue-600 text-white',...p})=>h`<button class="rounded px-3 py-1.5 text-sm font-medium ${c}" ...${p}/>`;
+
+function App(){
+ const[mode,setMode]=useState('sim'),[sim,setSim]=useState(()=>gen(0,5,25,'none')),[ct,setCt]=useState('auto');
+ const[txt,setTxt]=useState(''),[ei,setEi]=useState(''),[es,setEs]=useState(''),[nom,setNom]=useState(''),[nc,setNc]=useState('');
+ const[ind,setInd]=useState(null),[err,setErr]=useState(''),[hide,setHide]=useState(false),[guess,setGuess]=useState(''),[fb,setFb]=useState(null);
+ const cur=mode==='sim'?sim:ind,n=cur&&cur.rows[0].length,type=ct==='auto'?(n>10?'S':'R'):ct;
+ const a=useMemo(()=>{if(!cur)return null;const r=analyze(cur.rows,type,cur.EI,cur.ES,cur.N);
+  const bw=(r.dmax-r.dmin)/Math.max(6,Math.min(20,Math.round(1+3.322*Math.log10(r.all.length)))),k=Math.max(6,Math.min(20,Math.round(1+3.322*Math.log10(r.all.length)))),cnt=Array(k).fill(0);
+  r.all.forEach(x=>cnt[Math.min(k-1,Math.floor((x-r.dmin)/bw))]++);const mx=Math.max(...cnt);
+  if(r.dmin-cur.EI>=0&&r.dmin-cur.EI<bw&&cnt[0]>=.5*mx&&cnt[1]<cnt[0]*.6)r.cliff='acantilado en el límite inferior (posible selección/retrabajo al 100% o datos truncados)';
+  if(cur.ES-r.dmax>=0&&cur.ES-r.dmax<bw&&cnt[k-1]>=.5*mx&&cnt[k-2]<cnt[k-1]*.6)r.cliff='acantilado en el límite superior (posible selección/retrabajo al 100% o datos truncados)';
+  return r},[cur,type]);
+ const dec=a?Math.max(2,Math.ceil(-Math.log10((a.ES-a.EI)/100))):3,F=(v,d=dec)=>v.toFixed(d);
+ const reset=()=>{setFb(null);setGuess('')};
+ const upd=p=>{const s=gen(p.si??sim.si,p.n??sim.n,p.m??sim.m,p.fault??sim.fault);setSim(s);reset()};
+ const rnd=()=>{const ns=[3,4,5,5,6,8,12];const f=Object.keys(FAULTS);const s=gen(Math.floor(Math.random()*3),ns[Math.floor(Math.random()*ns.length)],20+Math.floor(Math.random()*11),f[Math.floor(Math.random()*f.length)]);setSim(s);if(hide)setHide(true);reset()};
+ const parse=()=>{setErr('');const E=+ei,S_=+es;
+  if(!isFinite(E)||!isFinite(S_)||ei===''||es===''||E>=S_)return setErr('Capture EI y ES válidos (EI < ES).');
+  let rows;const N=nom===''?(E+S_)/2:+nom;
+  if(+nc>1){const f=txt.split(/[\s,;]+/).filter(Boolean).map(Number).filter(isFinite),k=+nc;rows=[];for(let i=0;i+k<=f.length;i+=k)rows.push(f.slice(i,i+k))}
+  else{rows=txt.split(/\r?\n/).map(l=>l.trim().split(/[\s,;]+/).filter(Boolean).map(Number)).filter(r=>r.length&&r.every(isFinite));const L=rows[0]&&rows[0].length;rows=rows.filter(r=>r.length===L)}
+  if(!rows.length||rows[0].length<2)return setErr('Se requieren al menos 2 observaciones por subgrupo (una fila por subgrupo, o indique n si pegó una sola columna).');
+  if(rows[0].length>25)return setErr('Este simulador soporta n ≤ 25 (tabla de constantes).');
+  if(rows.length<2)return setErr('Se requieren al menos 2 subgrupos (se recomiendan 20 o más).');
+  setInd({rows,EI:E,ES:S_,N,m:rows.length});setFb(null)};
+ const file=e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>setTxt(String(r.result));r.readAsText(f)};
+ const clean=()=>{if(!a)return;const bad=new Set([...a.px.out,...a.pd.out]);if(!bad.size)return;const rows=cur.rows.filter((_,i)=>!bad.has(i));if(rows.length<2)return;mode==='sim'?setSim({...sim,rows}):setInd({...ind,rows})};
+ const check=()=>{const g=+guess;setFb(Math.abs(g-a.Cp)<=.05?'ok':'bad')};
+ const hidden=mode==='sim'&&hide&&fb===null;
+ return h`<div class="max-w-6xl mx-auto p-3 sm:p-5 space-y-4">
+ <header class="rounded-xl bg-slate-900 text-white p-4"><h1 class="text-xl sm:text-2xl font-bold">Simulador CEP — Cartas de control para variables y capacidad</h1><p class="text-sm text-slate-300">X̄-R · X̄-S · Cp, Cpi, Cps, Cpk, K · Basado en Gutiérrez Pulido y De la Vara Salazar, Control Estadístico de Calidad y Seis Sigma (2ª ed.)</p></header>
+ <div class="flex gap-2">${[['sim','Simulador / Ejercicios'],['ind','Industrial (datos reales)']].map(([k,t])=>h`<button key=${k} onClick=${()=>setMode(k)} class="rounded-lg px-4 py-2 text-sm font-semibold ${mode===k?'bg-blue-600 text-white':'bg-white border border-slate-300'}">${t}</button>`)}</div>
+ <section class="rounded-xl bg-white border border-slate-200 p-4">
+ ${mode==='sim'?h`<div class="grid sm:grid-cols-2 lg:grid-cols-5 gap-3 items-end">
+  <${Sel} l="Caso industrial" value=${sim.si} onChange=${e=>upd({si:+e.target.value})}>${SCEN.map((s,i)=>h`<option key=${i} value=${i}>${s.n}</option>`)}</${Sel}>
+  <${Sel} l="Falla a simular" value=${sim.fault} onChange=${e=>upd({fault:e.target.value})}>${Object.entries(FAULTS).map(([k,v])=>h`<option key=${k} value=${k}>${v}</option>`)}</${Sel}>
+  <${Inp} l="Tamaño de subgrupo n (2–25)" type="number" min="2" max="25" value=${sim.n} onChange=${e=>upd({n:Math.max(2,Math.min(25,+e.target.value||5))})}/>
+  <${Inp} l="Núm. de subgrupos m" type="number" min="10" max="60" value=${sim.m} onChange=${e=>upd({m:Math.max(10,Math.min(60,+e.target.value||25))})}/>
+  <div class="flex gap-2"><${Btn} onClick=${()=>upd({})}>Regenerar</${Btn}><${Btn} c="bg-slate-800 text-white" onClick=${rnd}>Aleatorio</${Btn}></div></div>
+  <label class="mt-3 flex items-center gap-2 text-sm"><input type="checkbox" checked=${hide} onChange=${e=>{setHide(e.target.checked);reset()}}/> Modo ejercicio: ocultar resultados y calcular Cp a mano (EI=${sim.EI}, ES=${sim.ES}, N=${sim.N})</label>`
+ :h`<div class="grid lg:grid-cols-3 gap-4"><div class="lg:col-span-2 space-y-2"><label class="block text-sm text-slate-600">Pegue los datos desde Excel/CSV (una fila por subgrupo) o cargue un archivo</label>
+  <textarea class="w-full h-36 rounded border border-slate-300 p-2 font-mono text-xs bg-white" placeholder="25.02  24.98  25.10  24.95  25.05&#10;25.07  25.01  24.93  25.12  25.00" value=${txt} onChange=${e=>setTxt(e.target.value)}></textarea>
+  <input type="file" accept=".csv,.txt,.tsv" onChange=${file} class="text-sm"/></div>
+  <div class="grid grid-cols-2 gap-3 content-start"><${Inp} l="EI" type="number" step="any" value=${ei} onChange=${e=>setEi(e.target.value)}/><${Inp} l="ES" type="number" step="any" value=${es} onChange=${e=>setEs(e.target.value)}/>
+  <${Inp} l="Nominal N (opcional)" type="number" step="any" value=${nom} onChange=${e=>setNom(e.target.value)}/><${Inp} l="n (solo si pegó 1 columna)" type="number" min="2" max="25" value=${nc} onChange=${e=>setNc(e.target.value)}/>
+  <div class="col-span-2"><${Btn} onClick=${parse}>Analizar datos</${Btn}> ${ind&&h`<span class="text-sm text-slate-600 ml-2">n = ${ind.rows[0].length}, m = ${ind.rows.length}</span>`}</div>${err&&h`<div class="col-span-2 text-sm text-red-700">${err}</div>`}</div></div>`}
+ </section>
+ ${!a?h`<div class="rounded-xl bg-white border p-6 text-center text-slate-500">Capture sus datos, especificaciones y presione “Analizar datos”.</div>`:h`<div class="space-y-4">
+  <div class="flex flex-wrap items-center gap-3 text-sm"><${Sel} l="Tipo de carta" value=${ct} onChange=${e=>setCt(e.target.value)}><option value="auto">Automático</option><option value="R">X̄-R</option><option value="S">X̄-S</option></${Sel}>
+   <span class="rounded bg-slate-200 px-2 py-1">Usando carta X̄-${a.isR?'R':'S'} · n = ${a.n} · m = ${a.m}</span>
+   ${a.n>10&&a.isR&&h`<span class="rounded bg-amber-100 text-amber-900 px-2 py-1">Con n > 10 se sugiere la carta X̄-S: el rango pierde eficiencia.</span>`}
+   ${a.n>10&&!a.isR&&ct==='auto'&&h`<span class="rounded bg-blue-100 text-blue-900 px-2 py-1">n > 10: se seleccionó X̄-S automáticamente.</span>`}
+   ${(a.px.out.size+a.pd.out.size>0)&&h`<${Btn} c="bg-slate-700 text-white" onClick=${clean}>Eliminar subgrupos fuera de control y recalcular</${Btn}>`}</div>
+  ${hidden?h`<div class="rounded-xl bg-white border p-4 space-y-3"><p class="text-sm">Calcule X̄, R (o S), σ̂ y Cp con la tabla de datos. Ingrese su Cp:</p><div class="flex gap-2 items-end"><${Inp} l="Cp calculado" type="number" step="any" value=${guess} onChange=${e=>setGuess(e.target.value)}/><${Btn} onClick=${check}>Verificar</${Btn}><${Btn} c="bg-slate-200" onClick=${()=>setFb('ok')}>Ver solución</${Btn}></div></div>`:h`<div class="space-y-4">
+  ${mode==='sim'&&hide&&h`<div class="rounded border p-3 text-sm ${fb==='ok'?tone.ok:tone.bad}">${fb==='ok'?'Cp coincide (±0.05) o solución revelada.':'No coincide.'} Cp = ${a.Cp.toFixed(3)}</div>`}
+  <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-2">
+   <${Kpi} l="X̿ (media global)" v=${F(a.XX)}/><${Kpi} l=${a.isR?'R̄':'S̄'} v=${F(a.Db,dec+1)}/><${Kpi} l=${a.isR?'σ̂ = R̄/d₂':'σ̂ = S̄/c₄'} v=${F(a.sig,dec+1)} s=${a.isR?'d₂ = '+a.d2:'c₄ = '+a.c4.toFixed(4)}/>
+   <${Kpi} l="Cp" v=${a.Cp.toFixed(3)} t=${a.Cp>1.33?'ok':a.Cp>=1?'warn':'bad'}/><${Kpi} l="Cpi" v=${a.Cpi.toFixed(3)}/><${Kpi} l="Cps" v=${a.Cps.toFixed(3)}/>
+   <${Kpi} l="Cpk" v=${a.Cpk.toFixed(3)} t=${a.Cpk>=1.25?'ok':a.Cpk>=1?'warn':'bad'}/><${Kpi} l="K (%)" v=${a.K.toFixed(1)} t=${Math.abs(a.K)>20?'warn':'ok'}/><${Kpi} l="LRI = X̿ − 3σ̂" v=${F(a.XX-3*a.sig)}/>
+   <${Kpi} l="LRS = X̿ + 3σ̂" v=${F(a.XX+3*a.sig)}/><${Kpi} l="PPM total" v=${Math.round(a.ppmL+a.ppmU).toLocaleString('es-MX')} s=${'inf '+Math.round(a.ppmL)+' / sup '+Math.round(a.ppmU)}/>
+   <${Kpi} l=${a.isR?'A₂ · D₃ · D₄':'A₃ · B₃ · B₄'} v=${a.A.toFixed(3)} s=${a.Lk.toFixed(3)+' · '+a.Uk.toFixed(3)}/></div>
+  <div class="grid lg:grid-cols-2 gap-4"><div class="rounded-xl bg-white border p-3"><${Ctl} title="Carta X̄" vals=${a.xb} c=${a.xl} pt=${a.px}/></div>
+   <div class="rounded-xl bg-white border p-3"><${Ctl} title=${'Carta '+(a.isR?'R':'S')} vals=${a.disp} c=${a.dl} pt=${a.pd}/></div></div>
+  <p class="text-xs text-slate-500">Rojo: punto fuera de límites · Ámbar: punto involucrado en un patrón no aleatorio (rachas, tendencias, acercamiento a límites, estratificación, ciclos).</p>
+  <div class="rounded-xl bg-white border p-3"><h3 class="font-semibold mb-1">Histograma de capacidad</h3><${Hist} a=${a}/></div>
+  <div class="rounded-xl bg-white border p-4 space-y-2"><h3 class="font-semibold">Reporte diagnóstico</h3>${report(a).map((r,i)=>h`<div key=${i} class="rounded-lg border p-3 text-sm ${tone[r[0]]}"><div class="font-semibold">${r[1]}</div><div>${r[2]}</div></div>`)}</div></div>`}
+  <details class="rounded-xl bg-white border p-3" open=${hidden}><summary class="cursor-pointer font-semibold text-sm">Tabla de datos y estadísticos por subgrupo</summary><div class="overflow-x-auto max-h-72 overflow-y-auto mt-2"><table class="text-xs w-full"><thead class="sticky top-0 bg-slate-100"><tr><th class="p-1">#</th>${cur.rows[0].map((_,j)=>h`<th key=${j} class="p-1">x${j+1}</th>`)}<th class="p-1">X̄</th><th class="p-1">R</th><th class="p-1">S</th></tr></thead><tbody>${cur.rows.map((r,i)=>h`<tr key=${i} class="border-t ${a.px.out.has(i)||a.pd.out.has(i)?'bg-red-50':''}"><td class="p-1 text-center">${i+1}</td>${r.map((v,j)=>h`<td key=${j} class="p-1 text-center">${v}</td>`)}<td class="p-1 text-center font-medium">${a.xb[i].toFixed(dec+1)}</td><td class="p-1 text-center">${a.R[i].toFixed(dec+1)}</td><td class="p-1 text-center">${a.S[i].toFixed(dec+1)}</td></tr>`)}</tbody></table></div></details></div>`}
+ <footer class="text-xs text-slate-500 pb-4">Los límites se calculan con los datos capturados (etapa de análisis). Cp y PPM suponen normalidad y estabilidad; σ̂ de corto plazo = R̄/d₂ o S̄/c₄.</footer></div>`}
+ReactDOM.createRoot(document.getElementById('root')).render(h`<${App}/>`);
+</script></body></html>
